@@ -362,6 +362,43 @@ async function removeAuthorizedUser(chatId) {
   }
 }
 
+async function saveCookiesToDb(email, cookies) {
+  try {
+    const database = await connectDb();
+    const collection = database.collection('accounts');
+    await collection.updateOne(
+      { email: email.toLowerCase() },
+      {
+        $set: {
+          cookies,
+          cookiesUpdatedAt: new Date()
+        }
+      }
+    );
+    console.log(`💾 Sync: Session cookies saved to MongoDB collection for ${email}`);
+    return true;
+  } catch (err) {
+    console.error('❌ Error saving cookies to MongoDB:', err.message);
+    return false;
+  }
+}
+
+async function loadCookiesFromDb(email) {
+  try {
+    const database = await connectDb();
+    const collection = database.collection('accounts');
+    const acc = await collection.findOne({ email: email.toLowerCase() });
+    if (acc && acc.cookies) {
+      console.log(`🔌 Sync: Loaded cookies from MongoDB collection for ${email}`);
+      return acc.cookies;
+    }
+    return null;
+  } catch (err) {
+    console.error('❌ Error loading cookies from MongoDB:', err.message);
+    return null;
+  }
+}
+
 module.exports = {
   connectDb,
   saveJobAlert,
@@ -384,4 +421,6 @@ module.exports = {
   getRevokedUsersDetailed,
   denyAuthorizedUser,
   removeAuthorizedUser,
+  saveCookiesToDb,
+  loadCookiesFromDb,
 };
