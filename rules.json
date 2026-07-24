@@ -1,0 +1,47 @@
+{
+  "freelancer_name": "Faisal Kazmi",
+  "search_queries": [
+    "full stack ai developer",
+    "ai agent developer",
+    "llm engineer",
+    "next.js node developer",
+    "react developer",
+    "crewai developer",
+    "llm fine tuning"
+  ],
+  "target_keywords": [
+    "react",
+    "next.js",
+    "typescript",
+    "node.js",
+    "nestjs",
+    "express",
+    "tailwind css",
+    "crewai",
+    "autogen",
+    "llama 3",
+    "lora",
+    "qlora",
+    "rag",
+    "vllm",
+    "postgresql",
+    "mongodb",
+    "firestore",
+    "graphql",
+    "supabase",
+    "deepgram"
+  ],
+  "ignore_keywords": [
+    "wordpress",
+    "php",
+    "shopify",
+    "wix",
+    "webflow",
+    "laravel",
+    "vue",
+    "angular",
+    "unpaid",
+    "equity"
+  ],
+  "min_budget": 500
+}
