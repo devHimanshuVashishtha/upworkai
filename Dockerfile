@@ -13,6 +13,9 @@ COPY package*.json ./
 # Install production dependencies only
 RUN npm ci --only=production
 
+# Install exact Chromium version matching Playwright package dependency
+RUN npx playwright install chromium
+
 # Copy application source code
 COPY . .
 
