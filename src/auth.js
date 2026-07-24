@@ -8,6 +8,14 @@ async function saveCookies(context) {
   const cookies = await context.cookies();
   fs.writeFileSync(config.COOKIES_PATH, JSON.stringify(cookies, null, 2), 'utf8');
   console.log(`💾 Fresh session cookies saved to ${config.COOKIES_PATH}`);
+
+  // Sync cookies to MongoDB Atlas
+  try {
+    const db = require('./db');
+    await db.saveCookiesToDb(config.UPWORK_EMAIL, cookies);
+  } catch (err) {
+    console.error('⚠️ Failed to sync cookies to database:', err.message);
+  }
 }
 
 function loadCookies() {
@@ -23,6 +31,22 @@ function loadCookies() {
 
 async function injectCookies(context) {
   let cookies = loadCookies();
+
+  if (!cookies) {
+    console.log('🔍 Local cookies missing. Checking MongoDB for synced session cookies...');
+    try {
+      const db = require('./db');
+      const dbCookies = await db.loadCookiesFromDb(config.UPWORK_EMAIL);
+      if (dbCookies) {
+        fs.writeFileSync(config.COOKIES_PATH, JSON.stringify(dbCookies, null, 2), 'utf8');
+        cookies = dbCookies;
+        console.log('✅ Synced session cookies successfully downloaded from MongoDB Atlas!');
+      }
+    } catch (err) {
+      console.warn('⚠️ Failed to fetch cookies from database:', err.message);
+    }
+  }
+
   if (cookies) {
     // Sanitize cookie sameSite attribute to prevent Playwright crash
     cookies = cookies.map(c => {
