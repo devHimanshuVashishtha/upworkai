@@ -1,6 +1,9 @@
 # Use official Playwright Chromium Node.js image with pre-installed browsers
 FROM mcr.microsoft.com/playwright:v1.45.0-jammy
 
+# Install unzip to allow Puppeteer chrome-headless-shell to extract successfully
+RUN apt-get update && apt-get install -y unzip && rm -rf /var/lib/apt/lists/*
+
 # Set container working directory
 WORKDIR /usr/src/app
 
