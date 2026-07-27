@@ -54,8 +54,8 @@ async function ensureChromeRunning() {
   const isWin = process.platform === 'win32';
   
   const cmd = isWin
-    ? `start "" "${config.CHROME_PATH}" --remote-debugging-port=${port} --user-data-dir="${config.BROWSER_DATA_DIR}" ${headlessFlag} ${proxyFlag} --remote-allow-origins=* --start-maximized --disable-blink-features=AutomationControlled`
-    : `"${config.CHROME_PATH}" --remote-debugging-port=${port} --user-data-dir="${config.BROWSER_DATA_DIR}" ${headlessFlag} ${proxyFlag} --remote-allow-origins=* --start-maximized --disable-blink-features=AutomationControlled --no-sandbox --disable-setuid-sandbox --disable-dev-shm-usage --disable-gpu`;
+    ? `start "" "${config.CHROME_PATH}" --remote-debugging-port=${port} --user-data-dir="${config.BROWSER_DATA_DIR}" ${headlessFlag} ${proxyFlag} --remote-allow-origins=* --start-maximized --disable-blink-features=AutomationControlled --disable-extensions --disable-component-extensions-with-background-pages --disable-default-apps --mute-audio --no-default-browser-check --disable-background-networking --disable-background-timer-throttling --disable-backgrounding-occluded-windows --disable-renderer-backgrounding --disable-ipc-flooding-protection --disable-client-side-phishing-detection --disable-breakpad --disable-sync --force-color-profile=srgb --use-mock-keychain`
+    : `"${config.CHROME_PATH}" --remote-debugging-port=${port} --user-data-dir="${config.BROWSER_DATA_DIR}" ${headlessFlag} ${proxyFlag} --remote-allow-origins=* --start-maximized --disable-blink-features=AutomationControlled --no-sandbox --disable-setuid-sandbox --disable-dev-shm-usage --disable-gpu --disable-extensions --disable-component-extensions-with-background-pages --disable-default-apps --mute-audio --no-default-browser-check --disable-background-networking --disable-background-timer-throttling --disable-backgrounding-occluded-windows --disable-renderer-backgrounding --disable-ipc-flooding-protection --disable-client-side-phishing-detection --disable-breakpad --disable-sync --force-color-profile=srgb --use-mock-keychain`;
 
   exec(cmd, (err) => {
     if (err && !err.killed) console.error('Chrome process error:', err.message);
