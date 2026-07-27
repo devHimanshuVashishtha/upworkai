@@ -7,7 +7,17 @@ const config = require('./config');
 
 chromium.use(stealth);
 
+let browserContext = null;
+
 function killPortProcess(port) {
+  if (browserContext) {
+    try {
+      browserContext.close();
+      console.log('🔌 Closed active Playwright browser context.');
+    } catch (closeErr) {}
+    browserContext = null;
+  }
+  
   try {
     const isWin = process.platform === 'win32';
     if (isWin) {
@@ -43,70 +53,81 @@ async function isPortActive(port) {
 }
 
 async function ensureChromeRunning() {
+  if (browserContext) return;
+  
   const port = config.CHROME_DEBUG_PORT;
+  console.log(`🚀 Launching Chrome via Playwright launchPersistentContext on port ${port}...`);
 
-  if (await isPortActive(port)) return;
-
-  console.log(`🚀 Launching Chrome on port ${port}...`);
-
-  const headlessFlag = config.HEADLESS ? '--headless=new' : '';
-  const proxyFlag = config.PROXY_URL ? `--proxy-server="${config.PROXY_URL}"` : '';
+  const headless = config.HEADLESS;
   const isWin = process.platform === 'win32';
   
-  const cmd = isWin
-    ? `start "" "${config.CHROME_PATH}" --remote-debugging-port=${port} --user-data-dir="${config.BROWSER_DATA_DIR}" ${headlessFlag} ${proxyFlag} --remote-allow-origins=* --start-maximized --disable-blink-features=AutomationControlled --disable-extensions --disable-component-extensions-with-background-pages --disable-default-apps --mute-audio --no-default-browser-check --disable-background-networking --disable-background-timer-throttling --disable-backgrounding-occluded-windows --disable-renderer-backgrounding --disable-ipc-flooding-protection --disable-client-side-phishing-detection --disable-breakpad --disable-sync --force-color-profile=srgb --use-mock-keychain`
-    : `"${config.CHROME_PATH}" --remote-debugging-port=${port} --user-data-dir="${config.BROWSER_DATA_DIR}" ${headlessFlag} ${proxyFlag} --remote-allow-origins=* --start-maximized --disable-blink-features=AutomationControlled --no-sandbox --disable-setuid-sandbox --disable-dev-shm-usage --disable-gpu --disable-extensions --disable-component-extensions-with-background-pages --disable-default-apps --mute-audio --no-default-browser-check --disable-background-networking --disable-background-timer-throttling --disable-backgrounding-occluded-windows --disable-renderer-backgrounding --disable-ipc-flooding-protection --disable-client-side-phishing-detection --disable-breakpad --disable-sync --force-color-profile=srgb --use-mock-keychain`;
+  const args = [
+    `--remote-debugging-port=${port}`,
+    '--remote-allow-origins=*',
+    '--disable-blink-features=AutomationControlled'
+  ];
 
-  exec(cmd, (err) => {
-    if (err && !err.killed) console.error('Chrome process error:', err.message);
-  });
-
-  console.log('⏳ Waiting for Chrome to start...');
-  for (let i = 0; i < config.LIMITS.CHROME_STARTUP_RETRIES; i++) {
-    await new Promise(r => setTimeout(r, 2000));
-    if (await isPortActive(port)) {
-      console.log('✅ Chrome is ready!');
-      return;
-    }
+  if (!isWin) {
+    args.push(
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-gpu',
+      '--disable-extensions',
+      '--disable-component-extensions-with-background-pages',
+      '--disable-default-apps',
+      '--mute-audio',
+      '--no-default-browser-check',
+      '--disable-background-networking',
+      '--disable-background-timer-throttling',
+      '--disable-backgrounding-occluded-windows',
+      '--disable-renderer-backgrounding',
+      '--disable-ipc-flooding-protection',
+      '--disable-client-side-phishing-detection',
+      '--disable-breakpad',
+      '--disable-sync',
+      '--force-color-profile=srgb',
+      '--use-mock-keychain'
+    );
   }
 
-  throw new Error(`Chrome failed to start on port ${port}. Ensure Google Chrome is installed.`);
+  // Handle proxy
+  let proxyOption = undefined;
+  if (config.PROXY_URL) {
+    proxyOption = { server: config.PROXY_URL };
+  }
+
+  // Force close any processes listening on the debugging port first to prevent locking
+  killPortProcess(port);
+  await new Promise(r => setTimeout(r, 1000));
+
+  try {
+    browserContext = await chromium.launchPersistentContext(config.BROWSER_DATA_DIR, {
+      executablePath: config.CHROME_PATH,
+      headless: headless,
+      viewport: null, // full screen
+      args: args,
+      proxy: proxyOption
+    });
+    console.log('✅ Chrome is ready and connected via Playwright context!');
+  } catch (err) {
+    console.error('❌ Failed to launch Chrome via Playwright context:', err.message);
+    throw err;
+  }
 }
 
 async function connectCDP() {
-  const port = config.CHROME_DEBUG_PORT;
-  try {
-    await ensureChromeRunning();
-    console.log('🔌 Connecting to Chrome via CDP...');
-    const browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`);
-    const contexts = browser.contexts();
-    const context = contexts.length > 0 ? contexts[0] : await browser.newContext();
-    return { browser, context };
-  } catch (err) {
-    console.warn(`⚠️ Playwright CDP connection failed: ${err.message}. Force closing locked browser processes...`);
-    killPortProcess(port);
-    await new Promise(r => setTimeout(r, 2000));
-    
-    // Retry launch and connection
-    await ensureChromeRunning();
-    console.log('🔌 Retrying connection to Chrome via CDP...');
-    const browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`);
-    const contexts = browser.contexts();
-    const context = contexts.length > 0 ? contexts[0] : await browser.newContext();
-    return { browser, context };
-  }
+  await ensureChromeRunning();
+  const browser = browserContext.browser();
+  return { browser, context: browserContext };
 }
 
 async function disconnect(browser, page) {
   if (page) {
     try { await page.close(); } catch {}
   }
-  if (browser) {
-    try {
-      await browser.close();
-      console.log('🔌 Disconnected from Chrome (stays open for next run).');
-    } catch {}
-  }
+  // We keep the browser context active globally to avoid relaunching Chrome on every cycle!
+  console.log('🔌 Disconnected from page (Chrome context stays open for next run).');
 }
 
 function bringChromeToFront() {
@@ -436,4 +457,3 @@ module.exports = {
   startRemoteDebuggerTunnel,
   stopRemoteDebuggerTunnel,
 };
-
