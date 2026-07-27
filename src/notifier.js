@@ -923,7 +923,7 @@ async function handleCallbackQuery(callbackQuery) {
 
   if (action === 'startup_select') {
     const email = parts.slice(1).join(':');
-    console.log(`🚀 Startup profile selected: ${email}`);
+    console.log(`🚀 Startup profile selected option: ${email}`);
     
     try {
       if (email === 'default') {
@@ -933,9 +933,44 @@ async function handleCallbackQuery(callbackQuery) {
         await axios.post(`https://api.telegram.org/bot${config.TELEGRAM_TOKEN}/editMessageText`, {
           chat_id,
           message_id,
-          text: '⚙️ <b>Running session using default configuration credentials (.env).</b>\nScraper loop initializing...',
+          text: '⚙️ <b>Running session using local fallback configuration credentials (.env).</b>\nScraper loop initializing...',
           parse_mode: 'HTML'
         });
+        authSignals.emit('startup-profile-selected');
+      } else if (email === 'load_env') {
+        // Load settings from .env / rules.json and save to MongoDB
+        const defaultEmail = process.env.UPWORK_EMAIL || 'default@example.com';
+        const defaultPassword = process.env.UPWORK_PASSWORD || '';
+        const defaultName = config.FREELANCER_NAME || 'Default Candidate';
+        const rawRules = config.getRawRules();
+
+        const newAccount = {
+          email: defaultEmail.toLowerCase(),
+          password: defaultPassword,
+          name: defaultName,
+          rules: rawRules,
+          isActive: true
+        };
+        await db.saveAccount(newAccount);
+        await db.setActiveAccount(newAccount.email);
+        await config.reloadActiveAccount();
+
+        await axios.post(`https://api.telegram.org/bot${config.TELEGRAM_TOKEN}/editMessageText`, {
+          chat_id,
+          message_id,
+          text: `📥 <b>Loaded & saved profile from .env: ${defaultName}</b> (<code>${defaultEmail}</code>)\nScraper loop initializing...`,
+          parse_mode: 'HTML'
+        });
+        authSignals.emit('startup-profile-selected');
+      } else if (email === 'add_new') {
+        userStates[chat_id] = { action: 'awaiting_email', timestamp: Date.now() };
+        await axios.post(`https://api.telegram.org/bot${config.TELEGRAM_TOKEN}/editMessageText`, {
+          chat_id,
+          message_id,
+          text: '📧 <b>Add New Upwork Account:</b>\n\nPlease type and send the Upwork <b>Login Email</b> for this account:',
+          parse_mode: 'HTML'
+        });
+        // We do NOT emit startup-profile-selected here; the promise will wait until onboarding completes.
       } else {
         await db.setActiveAccount(email);
         await config.reloadActiveAccount();
@@ -946,12 +981,13 @@ async function handleCallbackQuery(callbackQuery) {
           text: `🟢 <b>Profile selected: ${config.FREELANCER_NAME}</b> (<code>${config.activeAccountEmail}</code>)\nScraper loop initializing...`,
           parse_mode: 'HTML'
         });
+        authSignals.emit('startup-profile-selected');
       }
     } catch (err) {
       console.error('⚠️ Failed to confirm startup selection:', err.message);
+      // Fallback emit to unblock bot
+      authSignals.emit('startup-profile-selected');
     }
-    
-    authSignals.emit('startup-profile-selected');
     return;
   }
 
@@ -2817,11 +2853,17 @@ async function handleDocumentMessage(message) {
 
       // Automatically unpause and trigger a scrape run
       stats.setPaused(false);
-      try {
-        const { triggerScrapeRun } = require('../scraper-bot');
-        triggerScrapeRun();
-      } catch (err) {
-        console.warn('⚠️ Failed to auto-trigger scrape run after resume update:', err.message);
+      
+      if (onboardingData) {
+        // Emit signal to unblock startup selection loop
+        authSignals.emit('startup-profile-selected');
+      } else {
+        try {
+          const { triggerScrapeRun } = require('../scraper-bot');
+          triggerScrapeRun();
+        } catch (err) {
+          console.warn('⚠️ Failed to auto-trigger scrape run after resume update:', err.message);
+        }
       }
 
       if (feedbackMessageId) {
@@ -2969,15 +3011,29 @@ async function promptStartupProfile() {
     let message = '🚀 <b>Upwork Scraper Bot Started!</b>\n\nPlease select the active Upwork profile you want to run for this session:';
     
     const inlineKeyboard = {
-      inline_keyboard: accounts.map(acc => [
-        { text: `🟢 ${acc.name} (${acc.email})`, callback_data: `startup_select:${acc.email}` }
-      ])
+      inline_keyboard: []
     };
-    
-    // Add default config option
-    inlineKeyboard.inline_keyboard.push([
-      { text: '⚙️ Use Default configuration (.env / rules.json)', callback_data: 'startup_select:default' }
-    ]);
+
+    if (accounts.length === 0) {
+      message = '📂 <b>No Upwork Profiles Found in Database</b>\n\nPlease initialize the bot session using one of the options below:';
+      inlineKeyboard.inline_keyboard.push([
+        { text: '📥 Load & Save from .env', callback_data: 'startup_select:load_env' }
+      ]);
+      inlineKeyboard.inline_keyboard.push([
+        { text: '➕ Add New Profile', callback_data: 'startup_select:add_new' }
+      ]);
+    } else {
+      inlineKeyboard.inline_keyboard = accounts.map(acc => [
+        { text: `🟢 ${acc.name} (${acc.email})`, callback_data: `startup_select:${acc.email}` }
+      ]);
+      // Add default config option
+      inlineKeyboard.inline_keyboard.push([
+        { text: '⚙️ Use Local fallback (.env)', callback_data: 'startup_select:default' }
+      ]);
+      inlineKeyboard.inline_keyboard.push([
+        { text: '➕ Add New Profile', callback_data: 'startup_select:add_new' }
+      ]);
+    }
 
     await axios.post(`https://api.telegram.org/bot${config.TELEGRAM_TOKEN}/sendMessage`, {
       chat_id: config.CHAT_ID,
