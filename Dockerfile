@@ -19,8 +19,8 @@ RUN npx playwright install chromium
 # Copy application source code
 COPY . .
 
-# Set default headless mode to true for cloud execution
-ENV HEADLESS=true
+# Set default headless mode to false for xvfb headful execution in cloud
+ENV HEADLESS=false
 
 # Expose debugging port if needed (internal use)
 EXPOSE 9222
