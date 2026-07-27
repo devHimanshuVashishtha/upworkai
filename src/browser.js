@@ -138,8 +138,15 @@ function startCDPLookupProxy() {
       const clientHost = req.headers.host || '127.0.0.1:9223';
       const headers = { ...req.headers };
       headers.host = '127.0.0.1:9222';
+      
+      // Strip all origin, referer, and proxy/forwarding headers to make the request look native to Chrome
       delete headers.origin;
       delete headers.referer;
+      delete headers['x-forwarded-host'];
+      delete headers['x-forwarded-for'];
+      delete headers['x-forwarded-proto'];
+      delete headers['forwarded'];
+      delete headers['via'];
 
       const proxyReq = http.request({
         host: '127.0.0.1',
@@ -186,8 +193,15 @@ function startCDPLookupProxy() {
       
       const headers = { ...req.headers };
       headers.host = '127.0.0.1:9222';
+      
+      // Strip origin, referer, and forwarding headers for WebSocket upgrade
       delete headers.origin;
       delete headers.referer;
+      delete headers['x-forwarded-host'];
+      delete headers['x-forwarded-for'];
+      delete headers['x-forwarded-proto'];
+      delete headers['forwarded'];
+      delete headers['via'];
 
       let rawRequest = `${req.method} ${req.url} HTTP/${req.httpVersion}\r\n`;
       for (const [key, value] of Object.entries(headers)) {
@@ -236,20 +250,22 @@ async function startRemoteDebuggerTunnel() {
   }
 
   console.log('🔌 Launching remote debugger tunnel via localtunnel...');
-  return new Promise((resolve) => {
+  
+  // Method A: Try localtunnel
+  let url = await new Promise((resolve) => {
     const { spawn } = require('child_process');
     const isWin = process.platform === 'win32';
-    // Run npx localtunnel --port 9223 (connecting to our proxy!)
     const cmd = isWin ? 'npx.cmd' : 'npx';
     tunnelProcess = spawn(cmd, ['localtunnel', '--port', '9223']);
     
     let resolved = false;
     const timeout = setTimeout(() => {
       if (!resolved) {
-        console.warn('⚠️ Localtunnel connection timed out.');
+        console.warn('⚠️ Localtunnel connection timed out. Killing localtunnel process...');
+        try { tunnelProcess.kill(); } catch {}
         resolve(null);
       }
-    }, 15000);
+    }, 12000);
 
     tunnelProcess.stdout.on('data', (data) => {
       const output = data.toString();
@@ -257,11 +273,9 @@ async function startRemoteDebuggerTunnel() {
       
       const match = output.match(/your url is:\s*(https:\/\/[^\s]+)/i);
       if (match && match[1]) {
-        tunnelUrl = match[1];
         clearTimeout(timeout);
         resolved = true;
-        console.log(`✅ Remote debugger tunnel active at: ${tunnelUrl}`);
-        resolve(tunnelUrl);
+        resolve(match[1]);
       }
     });
 
@@ -270,11 +284,69 @@ async function startRemoteDebuggerTunnel() {
     });
 
     tunnelProcess.on('close', () => {
-      tunnelProcess = null;
-      tunnelUrl = null;
-      console.log('🔌 Remote debugger tunnel closed.');
+      if (!resolved) resolve(null);
     });
   });
+
+  if (url) {
+    tunnelUrl = url;
+    console.log(`✅ Remote debugger tunnel active via localtunnel: ${tunnelUrl}`);
+    return tunnelUrl;
+  }
+
+  // Method B Fallback: Try SSH tunnel via localhost.run
+  console.log('🔌 Localtunnel failed. Falling back to SSH Tunnel (localhost.run)...');
+  
+  url = await new Promise((resolve) => {
+    const { spawn } = require('child_process');
+    
+    // Run ssh -o StrictHostKeyChecking=no -R 80:127.0.0.1:9223 nokey@localhost.run
+    tunnelProcess = spawn('ssh', [
+      '-o', 'StrictHostKeyChecking=no',
+      '-o', 'ServerAliveInterval=30',
+      '-R', '80:127.0.0.1:9223',
+      'nokey@localhost.run'
+    ]);
+
+    let resolved = false;
+    const timeout = setTimeout(() => {
+      if (!resolved) {
+        console.warn('⚠️ SSH Tunnel connection timed out. Killing SSH process...');
+        try { tunnelProcess.kill(); } catch {}
+        resolve(null);
+      }
+    }, 12000);
+
+    tunnelProcess.stdout.on('data', (data) => {
+      const output = data.toString();
+      console.log(`[SSH Tunnel] ${output.trim()}`);
+      
+      // Match localhost.run URL: e.g. https://xxxx.lhr.life
+      const match = output.match(/(https:\/\/[a-z0-9-.]+\.lhr\.life)/i);
+      if (match && match[1]) {
+        clearTimeout(timeout);
+        resolved = true;
+        resolve(match[1]);
+      }
+    });
+
+    tunnelProcess.stderr.on('data', (data) => {
+      console.warn(`[SSH Tunnel Error] ${data.toString().trim()}`);
+    });
+
+    tunnelProcess.on('close', () => {
+      if (!resolved) resolve(null);
+    });
+  });
+
+  if (url) {
+    tunnelUrl = url;
+    console.log(`✅ Remote debugger tunnel active via SSH: ${tunnelUrl}`);
+    return tunnelUrl;
+  }
+
+  console.error('❌ All remote debugging tunnels failed.');
+  return null;
 }
 
 function stopRemoteDebuggerTunnel() {
