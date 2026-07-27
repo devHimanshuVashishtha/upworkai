@@ -134,10 +134,15 @@ function startCDPLookupProxy() {
 
     proxyServer = http.createServer((req, res) => {
       console.log(`[CDP Proxy] HTTP Request: ${req.method} ${req.url}`);
+      console.log(`[CDP Proxy] Client headers:`, JSON.stringify(req.headers));
       
       const clientHost = req.headers.host || '127.0.0.1:9223';
       const headers = { ...req.headers };
-      headers.host = '127.0.0.1:9222';
+      
+      // Clean host headers and strictly use capitalized Host header to satisfy Chrome's case-sensitive filters
+      delete headers.host;
+      delete headers.Host;
+      headers['Host'] = '127.0.0.1:9222';
       
       // Strip all origin, referer, and proxy/forwarding headers to make the request look native to Chrome
       delete headers.origin;
@@ -147,6 +152,8 @@ function startCDPLookupProxy() {
       delete headers['x-forwarded-proto'];
       delete headers['forwarded'];
       delete headers['via'];
+
+      console.log(`[CDP Proxy] Forwarded headers:`, JSON.stringify(headers));
 
       const proxyReq = http.request({
         host: '127.0.0.1',
@@ -190,9 +197,14 @@ function startCDPLookupProxy() {
 
     proxyServer.on('upgrade', (req, socket, head) => {
       console.log(`[CDP Proxy] WS Upgrade: ${req.url}`);
+      console.log(`[CDP Proxy] Client WS headers:`, JSON.stringify(req.headers));
       
       const headers = { ...req.headers };
-      headers.host = '127.0.0.1:9222';
+      
+      // Clean host headers and strictly use capitalized Host header for WS
+      delete headers.host;
+      delete headers.Host;
+      headers['Host'] = '127.0.0.1:9222';
       
       // Strip origin, referer, and forwarding headers for WebSocket upgrade
       delete headers.origin;
@@ -202,6 +214,8 @@ function startCDPLookupProxy() {
       delete headers['x-forwarded-proto'];
       delete headers['forwarded'];
       delete headers['via'];
+
+      console.log(`[CDP Proxy] Forwarded WS headers:`, JSON.stringify(headers));
 
       let rawRequest = `${req.method} ${req.url} HTTP/${req.httpVersion}\r\n`;
       for (const [key, value] of Object.entries(headers)) {
@@ -422,3 +436,4 @@ module.exports = {
   startRemoteDebuggerTunnel,
   stopRemoteDebuggerTunnel,
 };
+
