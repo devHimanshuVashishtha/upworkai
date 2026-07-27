@@ -221,6 +221,7 @@ function buildRulesConfigHtml() {
     `📝 <b>Commands to Edit:</b>`,
     `• <code>/setbudget</code> - Edit min budget`,
     `• <code>/setconnects</code> - Edit max connects limit`,
+    `• <code>/setsleep</code> - Edit sleep schedule`,
     `• <code>/addquery</code> - Add search query`,
     `• <code>/delquery</code> - Delete search query`,
     '━━━━━━━━━━━━━━━━━━━━'
@@ -487,6 +488,7 @@ function startTelegramListener() {
       { command: 'delquery', description: '❌ Delete an existing search query' },
       { command: 'setbudget', description: '💰 Set the minimum job budget' },
       { command: 'setconnects', description: '💳 Set the max connects warning threshold' },
+      { command: 'setsleep', description: '💤 Configure scraper sleep schedule hours' },
       { command: 'projects', description: '📂 View all portfolio project links' },
       { command: 'addproject', description: '➕ Add a portfolio project link' },
       { command: 'delproject', description: '❌ Remove a portfolio project link' },
@@ -1881,6 +1883,58 @@ async function handleTextMessage(message) {
       return;
     }
 
+    if (state.flow === 'setsleep') {
+      const parts = text.trim().split('|');
+      if (parts.length === 2) {
+        const start = parseInt(parts[0].trim(), 10);
+        const end = parseInt(parts[1].trim(), 10);
+
+        if (isNaN(start) || isNaN(end) || start < 0 || start > 23 || end < 0 || end > 23) {
+          try {
+            await axios.post(`https://api.telegram.org/bot${config.TELEGRAM_TOKEN}/sendMessage`, {
+              chat_id,
+              text: '❌ <b>Invalid Hours:</b> Please send valid hours between 0 and 23 in format: <code>start_hour | end_hour</code> (e.g. <code>23 | 8</code>):',
+              parse_mode: 'HTML'
+            });
+          } catch {}
+          return;
+        }
+
+        const r = config.getRawRules();
+        r.sleep_start_hour = start;
+        r.sleep_end_hour = end;
+        const success = config.saveRules(r);
+        if (success) {
+          stats.setPaused(false);
+          try {
+            const { triggerScrapeRun } = require('../scraper-bot');
+            triggerScrapeRun();
+          } catch {}
+        }
+        delete conversationState[chat_id];
+        flushPendingAlerts();
+
+        try {
+          await axios.post(`https://api.telegram.org/bot${config.TELEGRAM_TOKEN}/sendMessage`, {
+            chat_id,
+            text: success 
+              ? `✅ <b>Sleep schedule updated to ${start}:00 - ${end}:00!</b>\n\n⚡ <i>Scraper is active! Search runs will continue automatically in the background.</i>`
+              : '❌ Failed to save new rules configuration.',
+            parse_mode: 'HTML'
+          });
+        } catch {}
+      } else {
+        try {
+          await axios.post(`https://api.telegram.org/bot${config.TELEGRAM_TOKEN}/sendMessage`, {
+            chat_id,
+            text: '❌ <b>Invalid Format:</b> Please send as <code>start_hour | end_hour</code> (e.g. <code>23 | 8</code>):',
+            parse_mode: 'HTML'
+          });
+        } catch {}
+      }
+      return;
+    }
+
     if (state.flow === 'addquery') {
       const query = text.trim();
       if (!query) {
@@ -2368,6 +2422,67 @@ async function handleTextMessage(message) {
         parse_mode: 'HTML'
       });
     } catch {}
+    return;
+  }
+
+  // Intercept setsleep command
+  if (text === '/setsleep' || (text && text.startsWith('/setsleep'))) {
+    const args = text.replace('/setsleep', '').trim();
+    if (!args) {
+      const r = config.getRawRules();
+      conversationState[chat_id] = { flow: 'setsleep', timestamp: Date.now() };
+      try {
+        await axios.post(`https://api.telegram.org/bot${config.TELEGRAM_TOKEN}/sendMessage`, {
+          chat_id,
+          text: `💤 <b>Configure Sleep Schedule</b>\n` +
+            `Current schedule: <b>${config.SLEEP_START_HOUR}:00 - ${config.SLEEP_END_HOUR}:00</b>\n\n` +
+            `Please send the new sleep start and end hours in 24-hour format (e.g. <code>23 | 8</code> for 11 PM to 8 AM, or send <code>0 | 0</code> to disable sleep mode):`,
+          parse_mode: 'HTML'
+        });
+      } catch {}
+      return;
+    }
+
+    const parts = args.split('|');
+    if (parts.length === 2) {
+      const start = parseInt(parts[0].trim(), 10);
+      const end = parseInt(parts[1].trim(), 10);
+
+      if (isNaN(start) || isNaN(end) || start < 0 || start > 23 || end < 0 || end > 23) {
+        try {
+          await axios.post(`https://api.telegram.org/bot${config.TELEGRAM_TOKEN}/sendMessage`, {
+            chat_id,
+            text: '❌ <b>Invalid Hours:</b> Please send valid hours between 0 and 23 in format: <code>start_hour | end_hour</code> (e.g. <code>23 | 8</code>):',
+            parse_mode: 'HTML'
+          });
+        } catch {}
+        return;
+      }
+
+      const r = config.getRawRules();
+      r.sleep_start_hour = start;
+      r.sleep_end_hour = end;
+      const success = config.saveRules(r);
+      if (success) stats.setPaused(true);
+      
+      try {
+        await axios.post(`https://api.telegram.org/bot${config.TELEGRAM_TOKEN}/sendMessage`, {
+          chat_id,
+          text: success 
+            ? `✅ <b>Sleep schedule updated to ${start}:00 - ${end}:00!</b>\n\n⏸️ <b>Scraper has been paused automatically while you edit rules. Send /start to resume scanning.</b>`
+            : '❌ Failed to save new rules configuration.',
+          parse_mode: 'HTML'
+        });
+      } catch {}
+    } else {
+      try {
+        await axios.post(`https://api.telegram.org/bot${config.TELEGRAM_TOKEN}/sendMessage`, {
+          chat_id,
+          text: '❌ <b>Invalid Format:</b> Please send as <code>start_hour | end_hour</code> (e.g. <code>23 | 8</code>):',
+          parse_mode: 'HTML'
+        });
+      } catch {}
+    }
     return;
   }
 
