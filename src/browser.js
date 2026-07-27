@@ -133,8 +133,13 @@ function startCDPLookupProxy() {
     const net = require('net');
 
     proxyServer = http.createServer((req, res) => {
+      console.log(`[CDP Proxy] HTTP Request: ${req.method} ${req.url}`);
+      
+      const clientHost = req.headers.host || '127.0.0.1:9223';
       const headers = { ...req.headers };
       headers.host = '127.0.0.1:9222';
+      delete headers.origin;
+      delete headers.referer;
 
       const proxyReq = http.request({
         host: '127.0.0.1',
@@ -143,11 +148,30 @@ function startCDPLookupProxy() {
         method: req.method,
         headers: headers
       }, (proxyRes) => {
-        res.writeHead(proxyRes.statusCode, proxyRes.headers);
-        proxyRes.pipe(res);
+        const isJson = (proxyRes.headers['content-type'] || '').includes('application/json');
+        
+        if (isJson) {
+          let body = '';
+          proxyRes.on('data', (chunk) => { body += chunk; });
+          proxyRes.on('end', () => {
+            // Rewrite Chrome's 127.0.0.1 debugger links to use the public tunnel host!
+            const rewrittenBody = body.replace(/127\.0\.0\.1:9222/g, clientHost)
+                                      .replace(/localhost:9222/g, clientHost);
+            
+            const resHeaders = { ...proxyRes.headers };
+            delete resHeaders['content-length']; // length changed
+            
+            res.writeHead(proxyRes.statusCode, resHeaders);
+            res.end(rewrittenBody);
+          });
+        } else {
+          res.writeHead(proxyRes.statusCode, proxyRes.headers);
+          proxyRes.pipe(res);
+        }
       });
 
       proxyReq.on('error', (err) => {
+        console.error('[CDP Proxy Error] HTTP proxy request failed:', err.message);
         res.writeHead(502);
         res.end('Bad Gateway');
       });
@@ -156,8 +180,12 @@ function startCDPLookupProxy() {
     });
 
     proxyServer.on('upgrade', (req, socket, head) => {
+      console.log(`[CDP Proxy] WS Upgrade: ${req.url}`);
+      
       const headers = { ...req.headers };
       headers.host = '127.0.0.1:9222';
+      delete headers.origin;
+      delete headers.referer;
 
       let rawRequest = `${req.method} ${req.url} HTTP/${req.httpVersion}\r\n`;
       for (const [key, value] of Object.entries(headers)) {
@@ -175,6 +203,7 @@ function startCDPLookupProxy() {
       });
 
       targetSocket.on('error', (err) => {
+        console.error('[CDP Proxy Error] Target connection failed:', err.message);
         socket.destroy();
       });
       socket.on('error', (err) => {
