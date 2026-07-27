@@ -345,6 +345,57 @@ async function startRemoteDebuggerTunnel() {
     return tunnelUrl;
   }
 
+  // Method C Fallback: Try SSH tunnel via pinggy.io
+  console.log('🔌 localhost.run failed. Falling back to SSH Tunnel (pinggy.io)...');
+  
+  url = await new Promise((resolve) => {
+    const { spawn } = require('child_process');
+    
+    // Run ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=30 -R 80:127.0.0.1:9223 a.pinggy.io
+    tunnelProcess = spawn('ssh', [
+      '-o', 'StrictHostKeyChecking=no',
+      '-o', 'ServerAliveInterval=30',
+      '-R', '80:127.0.0.1:9223',
+      'a.pinggy.io'
+    ]);
+
+    let resolved = false;
+    const timeout = setTimeout(() => {
+      if (!resolved) {
+        console.warn('⚠️ Pinggy connection timed out. Killing SSH process...');
+        try { tunnelProcess.kill(); } catch {}
+        resolve(null);
+      }
+    }, 12000);
+
+    tunnelProcess.stdout.on('data', (data) => {
+      const output = data.toString();
+      console.log(`[Pinggy Tunnel] ${output.trim()}`);
+      
+      // Match pinggy URL: e.g. https://xxxx.pinggy.link or https://xxxx.pinggy.io
+      const match = output.match(/(https:\/\/[a-z0-9-.]+\.pinggy\.(?:link|io))/i);
+      if (match && match[1]) {
+        clearTimeout(timeout);
+        resolved = true;
+        resolve(match[1]);
+      }
+    });
+
+    tunnelProcess.stderr.on('data', (data) => {
+      console.warn(`[Pinggy Tunnel Error] ${data.toString().trim()}`);
+    });
+
+    tunnelProcess.on('close', () => {
+      if (!resolved) resolve(null);
+    });
+  });
+
+  if (url) {
+    tunnelUrl = url;
+    console.log(`✅ Remote debugger tunnel active via Pinggy: ${tunnelUrl}`);
+    return tunnelUrl;
+  }
+
   console.error('❌ All remote debugging tunnels failed.');
   return null;
 }
