@@ -148,9 +148,11 @@ function startCDPLookupProxy() {
         method: req.method,
         headers: headers
       }, (proxyRes) => {
-        const isJson = (proxyRes.headers['content-type'] || '').includes('application/json');
+        const contentType = proxyRes.headers['content-type'] || '';
+        const isJson = contentType.includes('application/json');
+        const isHtml = contentType.includes('text/html');
         
-        if (isJson) {
+        if (isJson || isHtml) {
           let body = '';
           proxyRes.on('data', (chunk) => { body += chunk; });
           proxyRes.on('end', () => {
