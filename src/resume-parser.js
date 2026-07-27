@@ -34,9 +34,8 @@ async function extractTextFromResume(filePath) {
       return fs.readFileSync(activePath, 'utf8').trim();
     } else if (ext === '.pdf') {
       const dataBuffer = fs.readFileSync(activePath);
-      const { PDFParse } = require('pdf-parse');
-      const parser = new PDFParse(new Uint8Array(dataBuffer));
-      const data = await parser.getText();
+      const pdf = require('pdf-parse');
+      const data = await pdf(dataBuffer);
       return data.text.trim();
     } else if (ext === '.docx') {
       const result = await mammoth.extractRawText({ path: activePath });
