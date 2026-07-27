@@ -54,8 +54,8 @@ async function ensureChromeRunning() {
   const isWin = process.platform === 'win32';
   
   const cmd = isWin
-    ? `start "" "${config.CHROME_PATH}" --remote-debugging-port=${port} --user-data-dir="${config.BROWSER_DATA_DIR}" ${headlessFlag} ${proxyFlag} --start-maximized --disable-blink-features=AutomationControlled`
-    : `"${config.CHROME_PATH}" --remote-debugging-port=${port} --user-data-dir="${config.BROWSER_DATA_DIR}" ${headlessFlag} ${proxyFlag} --start-maximized --disable-blink-features=AutomationControlled --no-sandbox --disable-setuid-sandbox --disable-dev-shm-usage --disable-gpu`;
+    ? `start "" "${config.CHROME_PATH}" --remote-debugging-port=${port} --user-data-dir="${config.BROWSER_DATA_DIR}" ${headlessFlag} ${proxyFlag} --remote-allow-origins=* --start-maximized --disable-blink-features=AutomationControlled`
+    : `"${config.CHROME_PATH}" --remote-debugging-port=${port} --user-data-dir="${config.BROWSER_DATA_DIR}" ${headlessFlag} ${proxyFlag} --remote-allow-origins=* --start-maximized --disable-blink-features=AutomationControlled --no-sandbox --disable-setuid-sandbox --disable-dev-shm-usage --disable-gpu`;
 
   exec(cmd, (err) => {
     if (err && !err.killed) console.error('Chrome process error:', err.message);
@@ -131,7 +131,7 @@ async function startRemoteDebuggerTunnel() {
     const isWin = process.platform === 'win32';
     // Run npx localtunnel --port 9222
     const cmd = isWin ? 'npx.cmd' : 'npx';
-    tunnelProcess = spawn(cmd, ['localtunnel', '--port', '9222']);
+    tunnelProcess = spawn(cmd, ['localtunnel', '--port', '9222', '--local-host', '127.0.0.1']);
     
     let resolved = false;
     const timeout = setTimeout(() => {
