@@ -121,17 +121,96 @@ function bringChromeToFront() {
 
 let tunnelProcess = null;
 let tunnelUrl = null;
+let proxyServer = null;
+
+function startCDPLookupProxy() {
+  return new Promise((resolve, reject) => {
+    if (proxyServer) {
+      return resolve();
+    }
+
+    const http = require('http');
+    const net = require('net');
+
+    proxyServer = http.createServer((req, res) => {
+      const headers = { ...req.headers };
+      headers.host = '127.0.0.1:9222';
+
+      const proxyReq = http.request({
+        host: '127.0.0.1',
+        port: 9222,
+        path: req.url,
+        method: req.method,
+        headers: headers
+      }, (proxyRes) => {
+        res.writeHead(proxyRes.statusCode, proxyRes.headers);
+        proxyRes.pipe(res);
+      });
+
+      proxyReq.on('error', (err) => {
+        res.writeHead(502);
+        res.end('Bad Gateway');
+      });
+
+      req.pipe(proxyReq);
+    });
+
+    proxyServer.on('upgrade', (req, socket, head) => {
+      const headers = { ...req.headers };
+      headers.host = '127.0.0.1:9222';
+
+      let rawRequest = `${req.method} ${req.url} HTTP/${req.httpVersion}\r\n`;
+      for (const [key, value] of Object.entries(headers)) {
+        rawRequest += `${key}: ${value}\r\n`;
+      }
+      rawRequest += '\r\n';
+
+      const targetSocket = net.connect(9222, '127.0.0.1', () => {
+        targetSocket.write(rawRequest);
+        if (head && head.length > 0) {
+          targetSocket.write(head);
+        }
+        socket.pipe(targetSocket);
+        targetSocket.pipe(socket);
+      });
+
+      targetSocket.on('error', (err) => {
+        socket.destroy();
+      });
+      socket.on('error', (err) => {
+        targetSocket.destroy();
+      });
+    });
+
+    proxyServer.on('error', (err) => {
+      console.error('⚠️ CDP Lookup Proxy error:', err.message);
+      reject(err);
+    });
+
+    proxyServer.listen(9223, '127.0.0.1', () => {
+      console.log('🔌 CDP Lookup Proxy listening on port 9223 -> 9222 (Host header rewrite active)');
+      resolve();
+    });
+  });
+}
 
 async function startRemoteDebuggerTunnel() {
   if (tunnelUrl) return tunnelUrl;
   
+  try {
+    await startCDPLookupProxy();
+  } catch (err) {
+    console.error('⚠️ Failed to start CDP Lookup Proxy:', err.message);
+    return null;
+  }
+
   console.log('🔌 Launching remote debugger tunnel via localtunnel...');
   return new Promise((resolve) => {
     const { spawn } = require('child_process');
     const isWin = process.platform === 'win32';
-    // Run npx localtunnel --port 9222
+    // Run npx localtunnel --port 9223 (connecting to our proxy!)
     const cmd = isWin ? 'npx.cmd' : 'npx';
-    tunnelProcess = spawn(cmd, ['localtunnel', '--port', '9222', '--local-host', '127.0.0.1']);
+    tunnelProcess = spawn(cmd, ['localtunnel', '--port', '9223']);
     
     let resolved = false;
     const timeout = setTimeout(() => {
@@ -171,9 +250,14 @@ function stopRemoteDebuggerTunnel() {
   if (tunnelProcess) {
     tunnelProcess.kill();
     tunnelProcess = null;
-    tunnelUrl = null;
     console.log('🔌 Stopped remote debugger tunnel.');
   }
+  if (proxyServer) {
+    proxyServer.close();
+    proxyServer = null;
+    console.log('🔌 Stopped CDP Lookup Proxy.');
+  }
+  tunnelUrl = null;
 }
 
 module.exports = {
