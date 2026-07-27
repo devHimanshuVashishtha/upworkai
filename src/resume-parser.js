@@ -2,6 +2,17 @@ const fs = require('fs');
 const path = require('path');
 const mammoth = require('mammoth');
 
+// Polyfill missing browser globals to prevent PDF.js backend crashes in modern Node environments
+if (typeof global.DOMMatrix === 'undefined') {
+  global.DOMMatrix = class DOMMatrix {};
+}
+if (typeof global.ImageData === 'undefined') {
+  global.ImageData = class ImageData {};
+}
+if (typeof global.Path2D === 'undefined') {
+  global.Path2D = class Path2D {};
+}
+
 function getResumeFile() {
   const rootDir = path.resolve(__dirname, '..');
   const files = fs.readdirSync(rootDir);
@@ -34,8 +45,9 @@ async function extractTextFromResume(filePath) {
       return fs.readFileSync(activePath, 'utf8').trim();
     } else if (ext === '.pdf') {
       const dataBuffer = fs.readFileSync(activePath);
-      const pdf = require('pdf-parse');
-      const data = await pdf(dataBuffer);
+      const { PDFParse } = require('pdf-parse');
+      const parser = new PDFParse(new Uint8Array(dataBuffer));
+      const data = await parser.getText();
       return data.text.trim();
     } else if (ext === '.docx') {
       const result = await mammoth.extractRawText({ path: activePath });
