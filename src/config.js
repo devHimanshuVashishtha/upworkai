@@ -172,8 +172,19 @@ module.exports = {
 
   HEADLESS: process.env.HEADLESS === 'true' || process.env.HEADLESS === undefined, // default to true if not specified
   
-  SLEEP_START_HOUR: parseInt(process.env.SLEEP_START_HOUR || '23', 10),
-  SLEEP_END_HOUR: parseInt(process.env.SLEEP_END_HOUR || '8', 10),
+  get SLEEP_START_HOUR() {
+    if (activeAccount && activeAccount.rules && activeAccount.rules.sleep_start_hour !== undefined) {
+      return activeAccount.rules.sleep_start_hour;
+    }
+    return parseInt(process.env.SLEEP_START_HOUR || '23', 10);
+  },
+  
+  get SLEEP_END_HOUR() {
+    if (activeAccount && activeAccount.rules && activeAccount.rules.sleep_end_hour !== undefined) {
+      return activeAccount.rules.sleep_end_hour;
+    }
+    return parseInt(process.env.SLEEP_END_HOUR || '8', 10);
+  },
 
   SCRAPE_INTERVAL_MS: 10 * 60 * 1000,
 
