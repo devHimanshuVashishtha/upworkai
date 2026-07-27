@@ -4,7 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "start": "node scraper-bot.js",
+    "start": "xvfb-run --server-args='-screen 0 1280x1024x24' node scraper-bot.js",
     "email": "node email-bot.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
