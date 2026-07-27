@@ -99,6 +99,7 @@ module.exports = {
   MONGODB_URI: process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/',
   MONGODB_DB_NAME: process.env.MONGODB_DB_NAME || 'upwork_assistant',
   GEMINI_API_KEY: process.env.GEMINI_API_KEY,
+  PROXY_URL: process.env.PROXY_URL || '',
 
   UPWORK_LOGIN_URL: 'https://www.upwork.com/ab/account-security/login',
   UPWORK_SEARCH_BASE: 'https://www.upwork.com/nx/search/jobs/',
