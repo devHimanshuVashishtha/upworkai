@@ -219,10 +219,10 @@ function buildRulesConfigHtml() {
     queries.map((q, idx) => `  ${idx + 1}. <code>${q}</code>`).join('\n') || '  None',
     '',
     `📝 <b>Commands to Edit:</b>`,
-    `• <code>/setbudget [amount]</code> - Edit min budget`,
-    `• <code>/setconnects [amount]</code> - Edit max connects`,
-    `• <code>/addquery [query]</code> - Add search query`,
-    `• <code>/delquery [query]</code> - Delete search query`,
+    `• <code>/setbudget</code> - Edit min budget`,
+    `• <code>/setconnects</code> - Edit max connects limit`,
+    `• <code>/addquery</code> - Add search query`,
+    `• <code>/delquery</code> - Delete search query`,
     '━━━━━━━━━━━━━━━━━━━━'
   ].join('\n');
 }
@@ -1596,11 +1596,66 @@ async function handleTextMessage(message) {
     // 3. Awaiting name during onboarding
     if (state.action === 'awaiting_name') {
       state.name = text.trim();
+      state.action = 'awaiting_min_budget';
+      try {
+        await axios.post(`https://api.telegram.org/bot${config.TELEGRAM_TOKEN}/sendMessage`, {
+          chat_id,
+          text: '💰 <b>Name received! Now send me the Minimum Job Budget limit in USD (e.g. 100 or 500):</b>',
+          parse_mode: 'HTML'
+        });
+      } catch {}
+      return;
+    }
+
+    // 3.1 Awaiting min budget during onboarding
+    if (state.action === 'awaiting_min_budget') {
+      const amount = parseInt(text.trim(), 10);
+      if (isNaN(amount) || amount < 0) {
+        try {
+          await axios.post(`https://api.telegram.org/bot${config.TELEGRAM_TOKEN}/sendMessage`, {
+            chat_id,
+            text: '❌ <b>Invalid amount:</b> Please send a valid number (e.g. 100 or 500):',
+            parse_mode: 'HTML'
+          });
+        } catch {}
+        return;
+      }
+      state.minBudget = amount;
+      state.action = 'awaiting_max_connects';
+      try {
+        await axios.post(`https://api.telegram.org/bot${config.TELEGRAM_TOKEN}/sendMessage`, {
+          chat_id,
+          text: '💳 <b>Minimum budget saved! Now send me the Maximum Connects Limit (e.g. 16 or 8) or send <code>none</code> to disable the limit:</b>',
+          parse_mode: 'HTML'
+        });
+      } catch {}
+      return;
+    }
+
+    // 3.2 Awaiting max connects during onboarding
+    if (state.action === 'awaiting_max_connects') {
+      const input = text.trim().toLowerCase();
+      let limit = null;
+      if (input !== 'none') {
+        const amount = parseInt(input, 10);
+        if (isNaN(amount) || amount <= 0) {
+          try {
+            await axios.post(`https://api.telegram.org/bot${config.TELEGRAM_TOKEN}/sendMessage`, {
+              chat_id,
+              text: '❌ <b>Invalid limit:</b> Please send a valid number (e.g. 8 or 16) or <code>none</code>:',
+              parse_mode: 'HTML'
+            });
+          } catch {}
+          return;
+        }
+        limit = amount;
+      }
+      state.maxConnectsLimit = limit;
       state.action = 'awaiting_resume';
       try {
         await axios.post(`https://api.telegram.org/bot${config.TELEGRAM_TOKEN}/sendMessage`, {
           chat_id,
-          text: '📄 <b>Name received! Finally, upload/attach the PDF resume for this account:</b>\n(Bot will parse it and generate the default rules automatically)',
+          text: '📄 <b>Connects limit saved! Finally, upload/attach the PDF resume for this account:</b>\n(Bot will parse it and generate the default search queries and keywords automatically)',
           parse_mode: 'HTML'
         });
       } catch {}
@@ -2821,6 +2876,10 @@ async function handleDocumentMessage(message) {
       }
 
       if (onboardingData) {
+        // Apply on-boarded budget and connects limit directly to generated rules
+        generatedRules.min_budget = onboardingData.minBudget || 0;
+        generatedRules.max_connects_limit = onboardingData.maxConnectsLimit !== undefined ? onboardingData.maxConnectsLimit : null;
+
         // Save the new account in database
         const newAccount = {
           email: onboardingData.email,
