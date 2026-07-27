@@ -50,11 +50,12 @@ async function ensureChromeRunning() {
   console.log(`🚀 Launching Chrome on port ${port}...`);
 
   const headlessFlag = config.HEADLESS ? '--headless=new' : '';
+  const proxyFlag = config.PROXY_URL ? `--proxy-server="${config.PROXY_URL}"` : '';
   const isWin = process.platform === 'win32';
   
   const cmd = isWin
-    ? `start "" "${config.CHROME_PATH}" --remote-debugging-port=${port} --user-data-dir="${config.BROWSER_DATA_DIR}" ${headlessFlag} --start-maximized --disable-blink-features=AutomationControlled`
-    : `"${config.CHROME_PATH}" --remote-debugging-port=${port} --user-data-dir="${config.BROWSER_DATA_DIR}" ${headlessFlag} --start-maximized --disable-blink-features=AutomationControlled --no-sandbox --disable-setuid-sandbox --disable-dev-shm-usage --disable-gpu`;
+    ? `start "" "${config.CHROME_PATH}" --remote-debugging-port=${port} --user-data-dir="${config.BROWSER_DATA_DIR}" ${headlessFlag} ${proxyFlag} --start-maximized --disable-blink-features=AutomationControlled`
+    : `"${config.CHROME_PATH}" --remote-debugging-port=${port} --user-data-dir="${config.BROWSER_DATA_DIR}" ${headlessFlag} ${proxyFlag} --start-maximized --disable-blink-features=AutomationControlled --no-sandbox --disable-setuid-sandbox --disable-dev-shm-usage --disable-gpu`;
 
   exec(cmd, (err) => {
     if (err && !err.killed) console.error('Chrome process error:', err.message);
@@ -118,4 +119,68 @@ function bringChromeToFront() {
   }
 }
 
-module.exports = { connectCDP, disconnect, bringChromeToFront, killPortProcess };
+let tunnelProcess = null;
+let tunnelUrl = null;
+
+async function startRemoteDebuggerTunnel() {
+  if (tunnelUrl) return tunnelUrl;
+  
+  console.log('🔌 Launching remote debugger tunnel via localtunnel...');
+  return new Promise((resolve) => {
+    const { spawn } = require('child_process');
+    const isWin = process.platform === 'win32';
+    // Run npx localtunnel --port 9222
+    const cmd = isWin ? 'npx.cmd' : 'npx';
+    tunnelProcess = spawn(cmd, ['localtunnel', '--port', '9222']);
+    
+    let resolved = false;
+    const timeout = setTimeout(() => {
+      if (!resolved) {
+        console.warn('⚠️ Localtunnel connection timed out.');
+        resolve(null);
+      }
+    }, 15000);
+
+    tunnelProcess.stdout.on('data', (data) => {
+      const output = data.toString();
+      console.log(`[Localtunnel] ${output.trim()}`);
+      
+      const match = output.match(/your url is:\s*(https:\/\/[^\s]+)/i);
+      if (match && match[1]) {
+        tunnelUrl = match[1];
+        clearTimeout(timeout);
+        resolved = true;
+        console.log(`✅ Remote debugger tunnel active at: ${tunnelUrl}`);
+        resolve(tunnelUrl);
+      }
+    });
+
+    tunnelProcess.stderr.on('data', (data) => {
+      console.warn(`[Localtunnel Error] ${data.toString().trim()}`);
+    });
+
+    tunnelProcess.on('close', () => {
+      tunnelProcess = null;
+      tunnelUrl = null;
+      console.log('🔌 Remote debugger tunnel closed.');
+    });
+  });
+}
+
+function stopRemoteDebuggerTunnel() {
+  if (tunnelProcess) {
+    tunnelProcess.kill();
+    tunnelProcess = null;
+    tunnelUrl = null;
+    console.log('🔌 Stopped remote debugger tunnel.');
+  }
+}
+
+module.exports = {
+  connectCDP,
+  disconnect,
+  bringChromeToFront,
+  killPortProcess,
+  startRemoteDebuggerTunnel,
+  stopRemoteDebuggerTunnel,
+};
